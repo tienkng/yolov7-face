@@ -411,7 +411,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Read cache
         cache.pop('hash')  # remove hash
         cache.pop('version')  # remove version
-        labels, shapes, self.segments = zip(*cache.values())
+        labels, shapes, self.segments = zip(*cache.values()) # <- change here
+
         self.labels = list(labels)
         self.shapes = np.array(shapes, dtype=np.float64)
         self.img_files = list(cache.keys())  # update
@@ -421,7 +422,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 x[:, 0] = 0
 
         n = len(shapes)  # number of images
-        bi = np.floor(np.arange(n) / batch_size).astype(np.int)  # batch index
+        bi = np.floor(np.arange(n) / batch_size).astype(np.int16)  # batch index
         nb = bi[-1] + 1  # number of batches
         self.batch = bi  # batch index of image
         self.n = n
@@ -484,19 +485,35 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if os.path.isfile(lb_file):
                     nf += 1  # label found
                     with open(lb_file, 'r') as f:
-                        l = [x.split() for x in f.read().strip().splitlines()]
-                        if any([len(x) > 8 for x in l]) and not kpt_label:  # is segment
-                            classes = np.array([x[0] for x in l], dtype=np.float32)
-                            segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in l]  # (cls, xy1...)
-                            l = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
+                        l = []
+                        for line_label in f.read().strip().splitlines():
+                            line_label = line_label.split()
+                            if len(line_label) == 5:
+                                line_label = [1] + line_label[1:] + [-1] * 15
+                            elif len(line_label) < 16:
+                                line_label = line_label[:15] + [0] * 5
+                            #elif len(line_label) >= 16:
+                            #    line_label = line_label[:15] + [line_label[15]] * 5
+
+                            l.append(line_label)
+
+                        #l = [x.split() for x in f.read().strip().splitlines()]
+
+                        #if any([len(x) > 8 for x in l]) and not kpt_label:  # is segment
+                        #    classes = np.array([x[0] for x in l], dtype=np.float32)
+                        #    segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in l]  # (cls, xy1...)
+                        #    l = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
+
                         l = np.array(l, dtype=np.float32)
+
                     if len(l):
-                        assert (l >= 0).all(), 'negative labels'
+                        #assert (l >= 0).all(), 'negative labels' # change here
+
                         if kpt_label:
                             assert l.shape[1] == kpt_label*3 + 5, 'labels require {} columns each'.format(kpt_label*3+5)
-                            assert (l[:, 5::3] <= 1).all(), 'non-normalized or out of bounds coordinate labels'
-                            assert (l[:, 6::3] <= 1).all(), 'non-normalized or out of bounds coordinate labels'
-                            # print("l shape", l.shape)
+                            assert (l[:, 5::3] <= 1).all(), '5::3 non-normalized or out of bounds coordinate labels'
+                            assert (l[:, 6::3] <= 1).all(), '6::3 non-normalized or out of bounds coordinate labels'
+
                             kpts = np.zeros((l.shape[0], kpt_label*2+5))
                             for i in range(len(l)):
                                 kpt = np.delete(l[i,5:], np.arange(2, l.shape[1]-5, 3))  #remove the occlusion paramater from the GT
@@ -505,7 +522,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                             assert l.shape[1] == kpt_label*2+5, 'labels require {} columns each after removing occlusion paramater'.format(kpt_label*2+5)
                         else:
                             assert l.shape[1] == 5, 'labels require 5 columns each'
-                            assert (l[:, 1:5] <= 1).all(), 'non-normalized or out of bounds coordinate labels'
+                            assert (l[:, 1:5] <= 1).all(), '1::5 non-normalized or out of bounds coordinate labels'
 
                         assert np.unique(l, axis=0).shape[0] == l.shape[0], 'duplicate labels'
                     else:
@@ -568,7 +585,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             # Load image
             img, (h0, w0), (h, w) = load_image(self, index)
             if self. tidl_load:
-              h0, w0 = self.img_sizes[index][:-1]   #modify the oroginal size for tidll loaded images
+                h0, w0 = self.img_sizes[index][:-1]   #modify the orginal size for tidll loaded images
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
             before_shape = img.shape
@@ -577,7 +594,16 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
             labels = self.labels[index].copy()
+
             if labels.size:  # normalized xywh to pixel xyxy format
+                #labels[:, 1:5] = xywhn2xyxy(
+                #    labels[:, 1:5], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1]
+                #)
+                # Landmark x
+                #labels[:, 5:15:2] = (ratio[0] * w) * labels[:, 5:15:2] + pad[0]
+                # Landmark y
+                #labels[:, 6:15:2] = (ratio[1] * h) * labels[:, 6:15:2] + pad[1]
+
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1], kpt_label=self.kpt_label)
 
         if self.augment:
@@ -599,6 +625,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             #     labels = cutout(img, labels)
 
         nL = len(labels)  # number of labels
+
         if nL:
             labels[:, 1:5] = xyxy2xywh(labels[:, 1:5])  # convert xyxy to xywh
             labels[:, [2, 4]] /= img.shape[0]  # normalized height 0-1
@@ -647,7 +674,16 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         img, label, path, shapes = zip(*batch)  # transposed
         for i, l in enumerate(label):
             l[:, 0] = i  # add target image index for build_targets()
-        return torch.stack(img, 0), torch.cat(label, 0), path, shapes
+
+        label = torch.cat(label, 0)
+
+        # Custom class label here
+        flabel = label[label[:,1] == 0]
+        hlabel = label[label[:,1] == 1]
+
+        hlabel[:, 1] = 0
+
+        return torch.stack(img, 0), (flabel, hlabel[:, :6]), path, shapes
 
     @staticmethod
     def collate_fn4(batch):

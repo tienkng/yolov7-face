@@ -8,12 +8,12 @@
 
 
 # train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
-train: data/widerface/train  # 16551 images
-val: data/widerface/val  # 16551 images
+train: widerface_head2/images/train
+val: widerface_head2/images/val
 #val: /ssd_1t/derron/yolov5-face/data/widerface/train/  # 4952 images
 
 # number of classes
 nc: 1
 
 # class names
-names: [ 'face']
+names: [ 'headface']
