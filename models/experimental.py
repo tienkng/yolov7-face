@@ -154,8 +154,9 @@ class End2End(nn.Module):
         device = device if device is not None else torch.device("cpu")
         assert isinstance(max_wh, (int)) or max_wh is None
         self.model = model.to(device)
-        self.model.model[-1].end2end = True
-        self.patch_model = ONNX_TRT2 if trt else ONNX_ORT
+        # self.model.model[-1].end2end = True
+        self.patch_model = ONNX_ORT
+
         self.end2end = self.patch_model(
             max_obj=max_obj,
             iou_thres=iou_thres,
@@ -165,12 +166,12 @@ class End2End(nn.Module):
         )
         self.end2end.eval()
         self.end2end = self.end2end.to(device)
-
+        
     def forward(self, x):
         x = self.model(x)
-        headx = self.end2end(x['IDetectHead'][0])
-        facex = self.end2end(x['IKeypoint'][0], kpts=True)
-        return {'head' : headx, 'face' : facex}
+        onnx_head, onnx_face = self.end2end(x)
+        
+        return onnx_head, onnx_face
 
 
 class ONNX_ORT(nn.Module):
@@ -189,14 +190,63 @@ class ONNX_ORT(nn.Module):
             device=self.device,
         )
 
-    def forward(self, x, kpts = False):
+    def forward(self, x):
+        # head layer
+        head = x['IDetectHead'][0]
+        hX, _, hboxes, hcategories, hscores, _ = self._convert(head)
+        hX = hX.unsqueeze(1).float()
+        onnx_head = torch.cat(
+            [
+                hX, 
+                hboxes,
+                hcategories,
+                hscores,
+            ],
+            1
+        )
+        
+        # face layer
+        face = x['IKeypoint'][0]
+        get_kpt = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        fX, _, fboxes, fcategories, fscores, lmks = self._convert(face, get_kpt)
+        fX = fX.unsqueeze(1).float()
+        onnx_face = torch.cat(
+            [
+                fX, 
+                fboxes,
+                fcategories,
+                fscores,
+                lmks
+            ],
+            1
+        )
+
+        return onnx_head, onnx_face
+        
+    def _convert(self, x, lmks_ls:list = None):
+        """specific predict output for onnx 
+
+        Args:
+            x (numpy array): predict output model should be array
+            lmks_ls (list, optional): index of landmark keypoints. Defaults to None.
+
+        Example:
+            # if have keypoints should specific get keypoint index
+            get_kpts = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+            X, Y, bboxes, label, score, kpts  = self._convert(model_output, get_kpts)
+                   
+            # no key point                     
+            X, Y, bboxes, label, score, lmks  = self._convert(model_output)
+                                        
+        """
         boxes = x[:, :, :4]
         conf = x[:, :, 4:5]
         scores = x[:, :, 5:6]
         
-        if kpts:
-          lmks = x[:, :, 6::]
-
+        if lmks_ls != None:
+            assert len(lmks_ls) % 3 == 0
+            lmks = x[:, :, lmks_ls]
+        
         scores *= conf
         boxes @= self.convert_matrix
         max_score, category_id = scores.max(2, keepdim=True)
@@ -206,36 +256,15 @@ class ONNX_ORT(nn.Module):
         selected_indices = ORT_NMS.apply(
             nmsbox, max_score_tp, self.max_obj, self.iou_threshold, self.score_threshold
         )
+        
         X, Y = selected_indices[:, 0], selected_indices[:, 2]
         selected_boxes = boxes[X, Y, :]
         selected_categories = category_id[X, Y, :].float()
         selected_scores = max_score[X, Y, :]
-
-        if kpts:
-          selected_lmks = lmks[X, Y, :]
+        selected_lmks = None if lmks_ls == None else lmks[X, Y, :]
           
-        X = X.unsqueeze(1).float()
-        if kpts:
-          return torch.cat(
-              [
-                X, 
-                selected_boxes,
-                selected_categories,
-                selected_scores,
-                selected_lmks
-              ],
-              1
-          )
+        return X, Y, selected_boxes, selected_categories, selected_scores, selected_lmks
 
-        return torch.cat(
-            [
-                X,
-                selected_boxes,
-                selected_categories,
-                selected_scores,
-            ],
-            1,
-        )
 
 class ORT_NMS(torch.autograd.Function):
     """ONNX-Runtime NMS operation"""
@@ -269,50 +298,3 @@ class ORT_NMS(torch.autograd.Function):
             iou_threshold,
             score_threshold,
         )
-
-class ONNX_TRT2(nn.Module):
-    """onnx module with TensorRT NMS operation."""
-
-    def __init__(self, max_obj=100, iou_thres=0.45, score_thres=0.25, max_wh=None, device=None):
-        super().__init__()
-        self.device = device if device else torch.device("cpu")
-        self.background_class = (-1,)
-        self.box_coding = (1,)
-        self.iou_threshold = iou_thres
-        self.max_obj = max_obj
-        self.plugin_version = "1"
-        self.score_activation = 0
-        self.score_threshold = score_thres
-
-    def forward(self, x):
-        boxes = x[:, :, :4]
-        conf = x[:, :, 4:5]
-        scores = x[:, :, 5:6]
-        lmks = x[:, :, 6::]
-        lmks = x[:, :, [6, 7, 9, 10, 12, 13, 15, 16, 18, 19]]
-        lmks_mask = x[:, :, [8, 11, 14, 17, 20]]
-
-        batch_size, _, _ = conf.shape
-        total_object = batch_size * self.max_obj
-
-        scores *= conf
-
-        num_det, det_boxes, det_scores, det_classes, det_indices = TRT_NMS4.apply(
-            boxes,
-            scores,
-            self.background_class,
-            self.iou_threshold,
-            self.max_obj,
-            self.score_activation,
-            self.score_threshold,
-        )
-        batch_indices = torch.ones_like(det_indices) * torch.arange(
-            batch_size, device=self.device, dtype=torch.int32
-        ).unsqueeze(1)
-        batch_indices = batch_indices.view(total_object).to(torch.long)
-        det_indices = det_indices.view(total_object).to(torch.long)
-
-        det_lmks = lmks[batch_indices, det_indices].view(batch_size, self.max_obj, 10)
-        det_lmks_mask = lmks_mask[batch_indices, det_indices].view(batch_size, self.max_obj, 5)
-
-        return num_det, det_boxes, det_scores, det_classes, det_lmks, det_lmks_mask

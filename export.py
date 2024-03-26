@@ -1,19 +1,20 @@
 import argparse
-import sys
 import time
-import warnings
+import onnx
+import sys
 
 sys.path.append("./")  # to run '$ python *.py' files in subdirectories
 
 import torch
 import torch.nn as nn
-from torch.utils.mobile_optimizer import optimize_for_mobile
 
 import models
 from models.experimental import attempt_load, End2End
 from utils.activations import Hardswish, SiLU
 from utils.general import set_logging, check_img_size
 from utils.torch_utils import select_device
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -83,28 +84,27 @@ if __name__ == "__main__":
                 m.act = SiLU()
         # elif isinstance(m, models.yolo.Detect):
         #     m.forward = m.forward_export  # assign forward (optional)
-    model.model[-1].export = not opt.grid  # set Detect() layer grid export
+        
+    # set Detect() layer grid export
+    model.model[-1].export = not opt.grid
+    model.model[-2].export = not opt.grid
+    
     y = model(img)  # dry run 
-
-    import onnx
 
     print("\nStarting ONNX export with onnx %s..." % onnx.__version__)
     f = opt.weights.replace(".pt", ".onnx")  # filename
     model.eval()
-    output_names = ["output"]
 
     dynamic_axes = None
     if opt.dynamic:
         dynamic_axes = {
             "images": {0: "batch", 2: "height", 3: "width"},  # size(1,3,640,640)
-            "output": {0: "batch", 2: "y", 3: "x"},
         }
+        dynamic_axes['output'] = {0: "batch", 2: "y", 3: "x"}
     if opt.dynamic_batch:
         opt.batch_size = "batch"
         dynamic_axes = {
-            "images": {
-                0: "batch",
-            },
+            "images": {0: "batch"}
         }
         if opt.end2end and opt.trt:
             output_axes = {
@@ -118,7 +118,8 @@ if __name__ == "__main__":
             }
         else:
             output_axes = {
-                "output": {0: "batch"},
+                "head" : {0: "batch"},
+                "face" : {0: "batch"}
             }
         dynamic_axes.update(output_axes)
 
@@ -165,7 +166,7 @@ if __name__ == "__main__":
                     5,
                 ]
             else:
-                output_names = ["output"]
+                output_names = ["head", "face"]
         else:
             model.model[-1].concat = True
 
@@ -220,6 +221,9 @@ if __name__ == "__main__":
             print(f"Cleanup failure: {e}")
 
     # print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
+    output =[node for node in onnx_model.graph.output]
+    print('Outputs: ', output)
+    
     onnx.save(onnx_model, f)
     print("ONNX export success, saved as %s" % f)
 
