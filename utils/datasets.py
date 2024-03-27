@@ -488,13 +488,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         l = []
                         for line_label in f.read().strip().splitlines():
                             line_label = line_label.split()
-                            if len(line_label) == 5:
-                                line_label = [1] + line_label[1:] + [-1] * 15
-                            elif len(line_label) < 16:
-                                line_label = line_label[:15] + [0] * 5
-                            #elif len(line_label) >= 16:
-                            #    line_label = line_label[:15] + [line_label[15]] * 5
-
+                            if len(line_label) == 5 and kpt_label:
+                                for i in kpt_label:
+                                    line_label = line_label + [0]*2 + [-1]
                             l.append(line_label)
 
                         #l = [x.split() for x in f.read().strip().splitlines()]
@@ -508,7 +504,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
                     if len(l):
                         #assert (l >= 0).all(), 'negative labels' # change here
-
                         if kpt_label:
                             assert l.shape[1] == kpt_label*3 + 5, 'labels require {} columns each'.format(kpt_label*3+5)
                             assert (l[:, 5::3] <= 1).all(), '5::3 non-normalized or out of bounds coordinate labels'
@@ -656,11 +651,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         #num_kpts = (labels.shape[1]-5)//2
         labels_out = torch.zeros((nL, 6+2*self.kpt_label)) if self.kpt_label else torch.zeros((nL, 6))
         if nL:
-            if  self.kpt_label:
+            if self.kpt_label:
                 labels_out[:, 1:] = torch.from_numpy(labels)
             else:
                 labels_out[:, 1:] = torch.from_numpy(labels[:, :5])
-
 
         # Convert
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -678,12 +672,12 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         label = torch.cat(label, 0)
 
         # Custom class label here
-        flabel = label[label[:,1] == 0]
-        hlabel = label[label[:,1] == 1]
+        # flabel = label[label[:,1] == 0]
+        # hlabel = label[label[:,1] == 1]
+        # hlabel[:, 1] = 0
 
-        hlabel[:, 1] = 0
-
-        return torch.stack(img, 0), (flabel, hlabel[:, :6]), path, shapes
+        #return torch.stack(img, 0), (flabel, hlabel[:, :6]), path, shapes
+        return torch.stack(img, 0), label, path, shapes
 
     @staticmethod
     def collate_fn4(batch):

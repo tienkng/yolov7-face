@@ -136,11 +136,6 @@ head:
    [88, 1, Conv, [512, 3, 1]],
    [101, 1, Conv, [1024, 3, 1]],
 
-   [[102,103,104], 1, IKeypoint, [nc, anchors, nkpt]],   # Detect(P3, P4, P5)
+   [[102,103,104], 1, IKeypoint, [nc, anchors, 5]],   # Detect(P3, P4, P5)
 
-   [75, 1, Conv, [256, 3, 1]],
-   [88, 1, Conv, [512, 3, 1]],
-   [101, 1, Conv, [1024, 3, 1]],
-
-   [[106,107,108], 1, IDetectHead, [nc, anchors, 0]],   # Detect(P3, P4, P5)
-  ]
+   [[102,103,104], 1, IDetectHead, [nc, anchors, 0]],   # Detect(P3, P4, P5)
