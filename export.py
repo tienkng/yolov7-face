@@ -119,7 +119,8 @@ if __name__ == "__main__":
         else:
             output_axes = {
                 "head" : {0: "batch"},
-                "face" : {0: "batch"}
+                "face" : {0: "batch"},
+                "body" : {0: "batch"}
             }
         dynamic_axes.update(output_axes)
 
@@ -166,7 +167,7 @@ if __name__ == "__main__":
                     5,
                 ]
             else:
-                output_names = ["head", "face"]
+                output_names = ["head", "face", "body"]
         else:
             model.model[-1].concat = True
 

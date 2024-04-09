@@ -169,9 +169,9 @@ class End2End(nn.Module):
         
     def forward(self, x):
         x = self.model(x)
-        onnx_head, onnx_face = self.end2end(x)
+        onnx_head, onnx_face, onnx_body = self.end2end(x)
         
-        return onnx_head, onnx_face
+        return onnx_head, onnx_face, onnx_body
 
 
 class ONNX_ORT(nn.Module):
@@ -191,6 +191,20 @@ class ONNX_ORT(nn.Module):
         )
 
     def forward(self, x):
+        # body layer
+        body = x['IDetectBody'][0]
+        bX, _, bboxes, bcategories, bscores, _ = self._convert(body)
+        bX = bX.unsqueeze(1).float()
+        onnx_body = torch.cat(
+            [
+                bX, 
+                bboxes,
+                bcategories,
+                bscores,
+            ],
+            1
+        )
+        
         # head layer
         head = x['IDetectHead'][0]
         hX, _, hboxes, hcategories, hscores, _ = self._convert(head)
@@ -221,7 +235,7 @@ class ONNX_ORT(nn.Module):
             1
         )
 
-        return onnx_head, onnx_face
+        return onnx_head, onnx_face, onnx_body
         
     def _convert(self, x, lmks_ls:list = None):
         """specific predict output for onnx 

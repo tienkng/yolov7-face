@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 import test  # import test.py to get mAP after each epoch
 from models.experimental import attempt_load
-from models.yolo import Model
+from models.yolo import Model, parse_model
 from utils.autoanchor import check_anchors
 from utils.datasets import create_dataloader
 from utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
@@ -39,10 +39,23 @@ from utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
 logger = logging.getLogger(__name__)
 
 
+def get_average_tensor(tensor_list):
+    # Check if the tensors have the same shape
+    if not all(tensor.shape == tensor_list[0].shape for tensor in tensor_list):
+        raise ValueError("Tensors in the list must have the same shape.")
+
+    # Sum the tensors element-wise
+    summed_tensor = torch.stack(tensor_list).sum(dim=0)
+
+    # Calculate the average by dividing by the number of tensors
+    average_tensor = summed_tensor / len(tensor_list)
+    
+    return average_tensor
+            
 def train(hyp, opt, device, tb_writer=None):
     logger.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
-    save_dir, epochs, batch_size, total_batch_size, weights, rank, kpt_label, freeze = \
-        Path(opt.save_dir), opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank, opt.kpt_label, opt.freeze
+    save_dir, epochs, batch_size, total_batch_size, weights, rank, kpt_label, freeze, multiloss, detect_layer = \
+        Path(opt.save_dir), opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank, opt.kpt_label, opt.freeze, opt.multilosses, opt.detect_layer
 
     # Directories
     wdir = save_dir / 'weights'
@@ -256,10 +269,14 @@ def train(hyp, opt, device, tb_writer=None):
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
     scaler = amp.GradScaler(enabled=cuda)
-
-    # compute_loss = ComputeLoss(model, kpt_label=kpt_label)  # init loss class
-    compute_loss = ComputeLoss(model)  # init loss class for head detection
-
+    
+    # init loss function
+    loss_fn = {
+        #'IKeypoint' : ComputeLoss(model, kpt_label=5),
+        'IDetectHead' : ComputeLoss(model),
+        #'IDetectBody' : ComputeLoss(model)
+    }
+   
     logger.info(f'Image sizes {imgsz} train, {imgsz_test} test\n'
                 f'Using {dataloader.num_workers} dataloader workers\n'
                 f'Logging results to {save_dir}\n'
@@ -321,12 +338,21 @@ def train(hyp, opt, device, tb_writer=None):
             # Forward
             with amp.autocast(enabled=cuda):
                 model_outputs = model(imgs)  # forward
-                names = list(model_outputs.keys())
-
-                if isinstance(targets, List) and len(names) > 1:
-                    pred = model_outputs['IDetectHead']
-                    loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
-                
+                # if don't use multiloss, auto detect last layer and compute_loss
+                if multiloss: # and len(loss_fn.keys()) == len(model_outputs.keys()):
+                    _loss, _loss_item = [], []
+                    for name, _loss_fn in loss_fn.items():
+                        _ls, _ls_items = _loss_fn(model_outputs[name], targets[name].to(device))
+                        _loss.append(_ls)
+                        _loss_item.append(_ls_items)
+                        
+                    loss =  _loss[0] if len(_loss) == 1 else sum(_loss) / len(_loss)
+                    loss_items = _loss_item[0] if len(_loss_item) == 1 else get_average_tensor(_loss_item) 
+                else: 
+                    # detect last layer
+                    name = model[-1].__class__.__name__
+                    loss, loss_items = loss_fn[name](model_outputs[name], targets[name].to(device)) 
+                    
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
                 if opt.quad:
@@ -347,17 +373,18 @@ def train(hyp, opt, device, tb_writer=None):
             if rank in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
                 mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
-                tgt = targets[0] if isinstance(targets, List) else target
+                tgt_name = list(targets.keys()) 
                 s = ('%10s' * 2 + '%10.4g' * 8) % (
-                    '%g/%g' % (epoch, epochs - 1), mem, *mloss, tgt.shape[0], imgs.shape[-1])
+                    '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets[tgt_name[0]].shape[0], imgs.shape[-1])
                 pbar.set_description(s)
 
                 # Plot
                 if plots and ni < 33:
                     f = save_dir / f'train_batch{ni}.jpg'  # filename
-                    if isinstance(targets, List):
-                        plot_images(imgs, targets[0], paths, f, kpt_label=kpt_label)
-                        plot_images(imgs, targets[1], paths, f, kpt_label=0)
+                    if isinstance(targets, dict):
+                        plot_images(imgs, targets[detect_layer], paths, f, kpt_label=kpt_label)
+                        # plot_images(imgs, targets[tgt_name[1]], paths, f, kpt_label=0)
+                        #plot_images(imgs, targets[tgt_name[2]], paths, f, kpt_label=0)
                     else:
                         plot_images(imgs, targets, paths, f, kpt_label=kpt_label)
                     #Thread(target=plot_images, args=(imgs, targets, paths, f), daemon=True).start()
@@ -392,11 +419,11 @@ def train(hyp, opt, device, tb_writer=None):
                                                  verbose=nc < 50 and final_epoch,
                                                  plots=plots and final_epoch,
                                                  wandb_logger=wandb_logger,
-                                                 compute_loss=compute_loss,
+                                                 compute_loss=loss_fn,
                                                  is_coco=is_coco,
-                                                 kpt_label=0)#kpt_label)
-
-                print("Evalutate tracking: ", results)
+                                                 kpt_label=kpt_label,
+                                                 detect_layer=detect_layer)#kpt_label)
+                print("Evalutate: ", results)
 
             # Write
             with open(results_file, 'a') as f:
@@ -468,7 +495,8 @@ def train(hyp, opt, device, tb_writer=None):
                                           save_json=True,
                                           plots=False,
                                           is_coco=is_coco,
-                                          kpt_label=kpt_label)
+                                          kpt_label=kpt_label,
+                                          detect_layer=detect_layer)
 
         # Strip optimizers
         final = best if best.exists() else last  # final model
@@ -526,6 +554,8 @@ if __name__ == '__main__':
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--kpt-label', type=int, default=0, help='number of keypoints')
     parser.add_argument('--freeze', type=int, default=-1, help='frozen number of layer')
+    parser.add_argument('--multilosses', type=bool, default=False, help="Multihead loss")
+    parser.add_argument('--detect-layer', type=str, default=None, help="Calculated loss")
     opt = parser.parse_args()
 
     # Set DDP variables

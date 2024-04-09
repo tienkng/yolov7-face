@@ -1,0 +1,15 @@
+CUDA_VISIBLE_DEVICE=7 python train.py \
+  --epochs 80 \
+  --workers 8 \
+  --device 7 \
+  --batch-size 112 \
+  --data data/scut_head.yaml \
+  --img 640 640 \
+  --cfg cfg/yolov7-person.yaml \
+  --name bodyfacehead \
+  --hyp data/hyp.scratch.tiny.yaml \
+  --weight weights/bodyface.pt \
+  --multilosses True \
+  --kpt-label 0 \
+  --detect-layer 'IDetectHead' \
+  --freeze 107

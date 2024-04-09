@@ -46,7 +46,9 @@ def test(data,
          tidl_load=False,
          dump_img=False,
          kpt_label=False,
-         flip_test=False):
+         flip_test=False,
+         multiloss=False,
+         detect_layer=None):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -117,12 +119,17 @@ def test(data,
         #print(img.shape)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
-        targets = targets.to(device)
+        try:
+            targets = targets.to(device)
+        except:
+            tgt_name = list(targets.keys())
+            targets = targets[detect_layer].to(device)
+            
         nb, _, height, width = img.shape  # batch size, channels, height, width
         with torch.no_grad():
             # Run model
             t = time_synchronized()
-            out, train_out = model(img, augment=augment)  # inference and training outputs
+            pred = model(img, augment=augment)  # inference and training outputs
             if flip_test:
                 img_flip = torch.flip(img,[3])
                 model.model[-1].flip_test = True
@@ -130,14 +137,17 @@ def test(data,
                 model.model[-1].flip_test = False
                 fuse1 = (out + out_flip)/2.0
                 out = torch.cat((out,fuse1), axis=1)
-            out = out[...,:6] if not kpt_label else out
-            targets = targets[..., :6] if not kpt_label else targets
+            
             t0 += time_synchronized() - t
 
-            # Compute loss
-            if compute_loss:
-                loss += compute_loss([x.float() for x in train_out], targets)[1][:3]  # box, obj, cls
-
+            #if not multiloss:
+            out, train_out = pred[detect_layer][0], pred[detect_layer][1]    
+            
+            try:
+                if compute_loss:
+                    loss += compute_loss([x.float() for x in train_out], targets)[1][:3]  # box, obj, cls
+            except:
+                loss += compute_loss[detect_layer]([x.float() for x in train_out], targets)[1][:3]
             # Run NMS
             if kpt_label:
                 num_points = (targets.shape[1]//2 - 1)
@@ -195,7 +205,7 @@ def test(data,
                 if wandb_logger.current_epoch % wandb_logger.bbox_interval == 0:
                     box_data = [{"position": {"minX": xyxy[0], "minY": xyxy[1], "maxX": xyxy[2], "maxY": xyxy[3]},
                                  "class_id": int(cls),
-                                 "box_caption": "%s %.3f" % (names[cls], conf),
+                                 "box_caption": "%s %.3f" % (names[int(cls)], conf),
                                  "scores": {"class_score": conf},
                                  "domain": "pixel"} for *xyxy, conf, cls in pred.tolist()]
                     boxes = {"predictions": {"box_data": box_data, "class_labels": names}}  # inference-space

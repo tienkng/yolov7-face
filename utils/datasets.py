@@ -489,8 +489,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         for line_label in f.read().strip().splitlines():
                             line_label = line_label.split()
                             if len(line_label) == 5 and kpt_label:
-                                for i in kpt_label:
-                                    line_label = line_label + [0]*2 + [-1]
+                                line_label = line_label + [0]*15
                             l.append(line_label)
 
                         #l = [x.split() for x in f.read().strip().splitlines()]
@@ -499,11 +498,11 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         #    classes = np.array([x[0] for x in l], dtype=np.float32)
                         #    segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in l]  # (cls, xy1...)
                         #    l = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
-
                         l = np.array(l, dtype=np.float32)
 
                     if len(l):
                         #assert (l >= 0).all(), 'negative labels' # change here
+                        
                         if kpt_label:
                             assert l.shape[1] == kpt_label*3 + 5, 'labels require {} columns each'.format(kpt_label*3+5)
                             assert (l[:, 5::3] <= 1).all(), '5::3 non-normalized or out of bounds coordinate labels'
@@ -672,12 +671,15 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         label = torch.cat(label, 0)
 
         # Custom class label here
-        # flabel = label[label[:,1] == 0]
-        # hlabel = label[label[:,1] == 1]
-        # hlabel[:, 1] = 0
-
-        #return torch.stack(img, 0), (flabel, hlabel[:, :6]), path, shapes
-        return torch.stack(img, 0), label, path, shapes
+        head_label = label[label[:,1] == 0]
+        #face_label = label[label[:,1] == 1]
+        #body_label = label[label[:,1] == 1]
+        
+        #body_label[:, 1] = 0
+        
+        # return torch.stack(img, 0), {'IKeypoint':face_label, 'IDetectHead':head_label[:,:6], 'IDetectBody':body_label[:,:6]}, path, shapes
+        
+        return torch.stack(img, 0), {'IDetectHead':head_label}, path, shapes
 
     @staticmethod
     def collate_fn4(batch):

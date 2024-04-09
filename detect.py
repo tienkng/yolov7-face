@@ -2,12 +2,9 @@ import argparse
 import time
 from pathlib import Path
 
-import os
-import copy
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
-from numpy import random
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -18,7 +15,7 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 
 def detect(opt):
-    source, weights, view_img, save_txt, imgsz, save_txt_tidl, kpt_label = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, opt.save_txt_tidl, opt.kpt_label
+    source, weights, view_img, save_txt, imgsz, save_txt_tidl, kpt_label, detect_layer = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, opt.save_txt_tidl, opt.kpt_label, opt.detect_layer
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
         ('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -61,6 +58,8 @@ def detect(opt):
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
     # Run inference
+    kpt_label = 5 if detect_layer == 'face' else 0
+        
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
     t0 = time.time()
@@ -73,8 +72,19 @@ def detect(opt):
 
         # Inference
         t1 = time_synchronized()
-        pred = model(img, augment=opt.augment)[0]
+        output = model(img, augment=opt.augment)
+        name = list(output.keys())
+
+        if detect_layer == 'face' and kpt_label:
+            _key = 'IKeypoint' if 'IKeypoint' in name else None
+        elif detect_layer == 'head':
+            _key = 'IDetectHead' if 'IDetectHead' in name else None
+        else: 
+            _key = 'IDetectBody' if 'IDetectBody' in name else None
+            
+        pred = output[_key][0]
         print(pred[...,4].max())
+        
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms, kpt_label=kpt_label)
         t2 = time_synchronized()
@@ -98,7 +108,8 @@ def detect(opt):
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 scale_coords(img.shape[2:], det[:, :4], im0.shape, kpt_label=False)
-                scale_coords(img.shape[2:], det[:, 6:], im0.shape, kpt_label=kpt_label, step=3)
+                if kpt_label:
+                    scale_coords(img.shape[2:], det[:, 6:], im0.shape, kpt_label=kpt_label, step=3)
 
                 # Print results
                 for c in det[:, 5].unique():
@@ -188,7 +199,8 @@ if __name__ == '__main__':
     parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)')
     parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
-    parser.add_argument('--kpt-label', type=int, default=5, help='number of keypoints')
+    parser.add_argument('--kpt-label', type=int, default=0, help='number of keypoints')
+    parser.add_argument('--detect-layer', type=str, default=None, help='Get layer name')
     opt = parser.parse_args()
     print(opt)
     check_requirements(exclude=('tensorboard', 'pycocotools', 'thop'))
