@@ -14,6 +14,9 @@ parser.add_argument("--model-path", type=str, default="./yolov5s6_pose_640_ti_li
 parser.add_argument("--img-path", type=str, default="./sample_ips.txt")
 parser.add_argument("--dst-path", type=str, default="./sample_ops_onnxrt")
 parser.add_argument("--get-layer", type=str, default="head")
+parser.add_argument("--head-thres", type=float, default=0.75)
+parser.add_argument("--face-thres", type=float, default=0.78)
+parser.add_argument("--body-thres", type=float, default=0.7)
 args = parser.parse_args()
 
 palette = np.array([[255, 128, 0], [255, 153, 51], [255, 178, 102],
@@ -59,10 +62,16 @@ def post_process(img_file, dst_file, output, dwdh=0, score_threshold=0.3, ratio=
         score = round(float(det_scores[idx]),3)
 
         # draw bbox
-        name = 'face' if get_layer == 'face' else 'head'
+        if get_layer == 'face':
+            name = 'face'
+        elif get_layer == 'head':
+            name = 'head'
+        else:
+            name = 'body'
+
         if score > score_threshold:
             cv2.rectangle(img, det_bbox[:2],det_bbox[2:],color_map[::-1],2)
-            cv2.putText(img, name, (det_bbox[0], det_bbox[1] - 2),cv2.FONT_HERSHEY_SIMPLEX,0.75,color_map[::-1],thickness=2)
+            cv2.putText(img, str(score), (det_bbox[0], det_bbox[1] - 2),cv2.FONT_HERSHEY_SIMPLEX,0.75,color_map[::-1],thickness=2)
 
         # draw keypoints
         if get_layer == 'face':
@@ -156,11 +165,21 @@ def model_inference_image_list(model_path, img_path=None, dst_path=None, get_lay
         img_file = img_file.rstrip()
         image, ratio, dwdh = read_img(img_file)
         pred = model_inference(model_path, image)
-        output = pred[0] if args.get_layer == 'head' else pred[1]
+        
+        if args.get_layer == 'head':
+            output = pred[0]
+            score_thres = args.head_thres
+        elif args.get_layer == 'face':
+            output = pred[1] 
+            score_thres = args.face_thres
+        elif args.get_layer == 'body':
+            output = pred[2] 
+            score_thres = args.body_thres
+        else:
+            raise NotImplementedError
         
         dst_file = os.path.join(dst_path, os.path.basename(img_file))
-        #print("\n", dst_file)
-        post_process(img_file, dst_file, output, dwdh, score_threshold=0.3, ratio=ratio, get_layer=get_layer)
+        post_process(img_file, dst_file, output, dwdh, score_threshold=score_thres, ratio=ratio, get_layer=get_layer)
 
 
 def main():

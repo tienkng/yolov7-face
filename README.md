@@ -33,10 +33,11 @@ python export.py \
 ## ONNX inference
 ```python
 python onnx_inference/inference.py \
-  --model-path 'yolov7-headface-v1.onnx' \
+  --model-path 'weights/yolov7-headface-v1.onnx' \
   --img-path 'data/images' \
   --dst-path '/predicts/output' \
-  --get-layer 'face'
+  --get-layer 'face' \
+  --face-thres 0.78
 ```
 
 #### Dataset
