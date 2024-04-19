@@ -235,7 +235,7 @@ class ONNX_ORT(nn.Module):
             1
         )
 
-        return onnx_head, onnx_face, onnx_body
+        return onnx_head, onnx_face, _
         
     def _convert(self, x, lmks_ls:list = None):
         """specific predict output for onnx 
@@ -276,9 +276,8 @@ class ONNX_ORT(nn.Module):
         selected_categories = category_id[X, Y, :].float()
         selected_scores = max_score[X, Y, :]
         selected_lmks = None if lmks_ls == None else lmks[X, Y, :]
-          
+        
         return X, Y, selected_boxes, selected_categories, selected_scores, selected_lmks
-
 
 class ORT_NMS(torch.autograd.Function):
     """ONNX-Runtime NMS operation"""

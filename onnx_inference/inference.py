@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model-path", type=str, default="./yolov5s6_pose_640_ti_lite_54p9_82p2.onnx")
+parser.add_argument("--model-path", type=str, default="./yolo.onnx")
 parser.add_argument("--img-path", type=str, default="./sample_ips.txt")
 parser.add_argument("--dst-path", type=str, default="./sample_ops_onnxrt")
 parser.add_argument("--get-layer", type=str, default="head")
@@ -38,7 +38,7 @@ _CLASS_COLOR_MAP = [
 pose_kpt_color = palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
 
 
-def post_process(img_file, dst_file, output, dwdh=0, score_threshold=0.3, ratio=0, get_layer=None):
+def postprocess(img_file, dst_file, output, dwdh=0, score_threshold=0.3, ratio=0, get_layer=None):
     """
     Draw bounding boxes on the input image. Dump boxes in a txt file.
     """
@@ -138,7 +138,9 @@ def model_inference(model_path=None, inp=None):
     #onnx_model = onnx.load(args.model_path)
     session = onnxruntime.InferenceSession(model_path, None)
     input_name = session.get_inputs()[0].name
-    output = session.run([], {input_name: inp})
+    if isinstance(inp, list):
+        inp = np.stack(inp).squeeze()
+    output = session.run([], {input_name: inp}) # {input_name: [inp, inp, inp]} 
     return output           
             
 def model_inference_image_list(model_path, img_path=None, dst_path=None, get_layer=None):
@@ -179,7 +181,7 @@ def model_inference_image_list(model_path, img_path=None, dst_path=None, get_lay
             raise NotImplementedError
         
         dst_file = os.path.join(dst_path, os.path.basename(img_file))
-        post_process(img_file, dst_file, output, dwdh, score_threshold=score_thres, ratio=ratio, get_layer=get_layer)
+        postprocess(img_file, dst_file, output, dwdh, score_threshold=score_thres, ratio=ratio, get_layer=get_layer)
 
 
 def main():
