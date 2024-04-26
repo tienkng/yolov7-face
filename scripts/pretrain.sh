@@ -1,0 +1,15 @@
+python -m torch.distributed.launch --nproc_per_node 2 --master_port 9527 train.py \
+  --epochs 300 \
+  --workers 8 \
+  --device 0,1 \
+  --batch-size 64 \
+  --data data/widerface.yaml \
+  --img 640 640 \
+  --cfg cfg/yolov7-tiny.yaml \
+  --name yolov7-tiny-pretrain \
+  --hyp data/hyp.scratch.tiny.yaml \
+  --weight weights/yolov7-tiny.pt \
+  --multilosses True \
+  --kpt-label 5 \
+  --sync-bn \
+  --warmup

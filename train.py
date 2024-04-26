@@ -49,13 +49,13 @@ def get_average_tensor(tensor_list):
 
     # Calculate the average by dividing by the number of tensors
     average_tensor = summed_tensor / len(tensor_list)
-    
+
     return average_tensor
-            
+
 def train(hyp, opt, device, tb_writer=None):
     logger.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
-    save_dir, epochs, batch_size, total_batch_size, weights, rank, kpt_label, freeze, multiloss, detect_layer = \
-        Path(opt.save_dir), opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank, opt.kpt_label, opt.freeze, opt.multilosses, opt.detect_layer
+    save_dir, epochs, batch_size, total_batch_size, weights, rank, kpt_label, freeze, multiloss, detect_layer, warmup = \
+        Path(opt.save_dir), opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank, opt.kpt_label, opt.freeze, opt.multilosses, opt.detect_layer, opt.warmup
 
     # Directories
     wdir = save_dir / 'weights'
@@ -113,12 +113,19 @@ def train(hyp, opt, device, tb_writer=None):
     test_path = data_dict['val']
 
     # Freeze
-    freeze = [f'model.{x}.' for x in range(freeze)]  # layers to freeze
-    for k, v in model.named_parameters():
-        v.requires_grad = True  # train all layers
-        if any(x in k for x in freeze):
-            print(f'freezing {k}')
-            v.requires_grad = False
+    if freeze is not None:
+        _freeze = []
+        for _sub_layer in freeze.split(','):
+            if _sub_layer.find('-') > 0:
+                start, end = _sub_layer.split('-')
+                _freeze.extend([f'model.{x}.' for x in range(int(start), int(end))])  # layers to freeze
+            else: # frozen from layer to layer
+                _freeze.extend([f'model.{x}.' for x in range(int(_sub_layer))])  # layers to freeze
+        for k, v in model.named_parameters():
+            v.requires_grad = True  # train all layers
+            if any(x in k for x in _freeze):
+                print(f'freezing {k}')
+                v.requires_grad = False
 
     # Optimizer
     nbs = 64  # nominal batch size
@@ -263,20 +270,21 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Start training
     t0 = time.time()
-    nw = max(round(hyp['warmup_epochs'] * nb), 1000)  # number of warmup iterations, max(3 epochs, 1k iterations)
+    if warmup:
+        nw = max(round(hyp['warmup_epochs'] * nb), 1000)  # number of warmup iterations, max(3 epochs, 1k iterations)
     # nw = min(nw, (epochs - start_epoch) / 2 * nb)  # limit warmup to < 1/2 of training
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
     scaler = amp.GradScaler(enabled=cuda)
-    
+
     # init loss function
     loss_fn = {
-        #'IKeypoint' : ComputeLoss(model, kpt_label=5),
+        'IKeypoint' : ComputeLoss(model, kpt_label=kpt_label),
         'IDetectHead' : ComputeLoss(model),
-        #'IDetectBody' : ComputeLoss(model)
+        'IDetectBody' : ComputeLoss(model)
     }
-   
+
     logger.info(f'Image sizes {imgsz} train, {imgsz_test} test\n'
                 f'Using {dataloader.num_workers} dataloader workers\n'
                 f'Logging results to {save_dir}\n'
@@ -317,15 +325,16 @@ def train(hyp, opt, device, tb_writer=None):
             imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
 
             # Warmup
-            if ni <= nw:
-                xi = [0, nw]  # x interp
-                # model.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
-                accumulate = max(1, np.interp(ni, xi, [1, nbs / total_batch_size]).round())
-                for j, x in enumerate(optimizer.param_groups):
-                    # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
-                    x['lr'] = np.interp(ni, xi, [hyp['warmup_bias_lr'] if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
-                    if 'momentum' in x:
-                        x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
+            if warmup:
+                if ni <= nw:
+                    xi = [0, nw]  # x interp
+                    # model.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
+                    accumulate = max(1, np.interp(ni, xi, [1, nbs / total_batch_size]).round())
+                    for j, x in enumerate(optimizer.param_groups):
+                        # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
+                        x['lr'] = np.interp(ni, xi, [hyp['warmup_bias_lr'] if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
+                        if 'momentum' in x:
+                            x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
 
             # Multi-scale
             if opt.multi_scale:
@@ -345,14 +354,14 @@ def train(hyp, opt, device, tb_writer=None):
                         _ls, _ls_items = _loss_fn(model_outputs[name], targets[name].to(device))
                         _loss.append(_ls)
                         _loss_item.append(_ls_items)
-                        
+
                     loss =  _loss[0] if len(_loss) == 1 else sum(_loss) / len(_loss)
-                    loss_items = _loss_item[0] if len(_loss_item) == 1 else get_average_tensor(_loss_item) 
-                else: 
+                    loss_items = _loss_item[0] if len(_loss_item) == 1 else get_average_tensor(_loss_item)
+                else:
                     # detect last layer
                     name = model[-1].__class__.__name__
-                    loss, loss_items = loss_fn[name](model_outputs[name], targets[name].to(device)) 
-                    
+                    loss, loss_items = loss_fn[name](model_outputs[name], targets[name].to(device))
+
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
                 if opt.quad:
@@ -373,7 +382,7 @@ def train(hyp, opt, device, tb_writer=None):
             if rank in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
                 mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
-                tgt_name = list(targets.keys()) 
+                tgt_name = list(targets.keys())
                 s = ('%10s' * 2 + '%10.4g' * 8) % (
                     '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets[tgt_name[0]].shape[0], imgs.shape[-1])
                 pbar.set_description(s)
@@ -382,9 +391,10 @@ def train(hyp, opt, device, tb_writer=None):
                 if plots and ni < 33:
                     f = save_dir / f'train_batch{ni}.jpg'  # filename
                     if isinstance(targets, dict):
-                        plot_images(imgs, targets[detect_layer], paths, f, kpt_label=kpt_label)
-                        # plot_images(imgs, targets[tgt_name[1]], paths, f, kpt_label=0)
-                        #plot_images(imgs, targets[tgt_name[2]], paths, f, kpt_label=0)
+                        if detect_layer == 'IKeypoint':
+                            plot_images(imgs, targets[detect_layer], paths, f, kpt_label=kpt_label)
+                        else:
+                            plot_images(imgs, targets[detect_layer], paths, f, kpt_label=0)
                     else:
                         plot_images(imgs, targets, paths, f, kpt_label=kpt_label)
                     #Thread(target=plot_images, args=(imgs, targets, paths, f), daemon=True).start()
@@ -421,8 +431,8 @@ def train(hyp, opt, device, tb_writer=None):
                                                  wandb_logger=wandb_logger,
                                                  compute_loss=loss_fn,
                                                  is_coco=is_coco,
-                                                 kpt_label=kpt_label,
-                                                 detect_layer=detect_layer)#kpt_label)
+                                                 kpt_label=kpt_label if detect_layer=='IKeypoint' else 0,
+                                                 detect_layer=detect_layer)
                 print("Evalutate: ", results)
 
             # Write
@@ -553,9 +563,10 @@ if __name__ == '__main__':
     parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--kpt-label', type=int, default=0, help='number of keypoints')
-    parser.add_argument('--freeze', type=int, default=-1, help='frozen number of layer')
+    parser.add_argument('--freeze', type=str, default=None, help='frozen number of layer')
     parser.add_argument('--multilosses', type=bool, default=False, help="Multihead loss")
     parser.add_argument('--detect-layer', type=str, default=None, help="Calculated loss")
+    parser.add_argument('--warmup', type=bool, default=False, help="Warmup epochs")
     opt = parser.parse_args()
 
     # Set DDP variables
