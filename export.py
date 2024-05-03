@@ -1,7 +1,8 @@
-import argparse
+import os
+import sys
 import time
 import onnx
-import sys
+import argparse
 
 sys.path.append("./")  # to run '$ python *.py' files in subdirectories
 
@@ -15,10 +16,11 @@ from utils.general import set_logging, check_img_size
 from utils.torch_utils import select_device
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", type=str, default="./yolor-csp-c.pt", help="weights path")
+    parser.add_argument(
+        "--weights", type=str, default="./yolor-csp-c.pt", help="weights path"
+    )
     parser.add_argument(
         "--img-size", nargs="+", type=int, default=[640, 640], help="image size"
     )  # height, width
@@ -29,7 +31,9 @@ if __name__ == "__main__":
         action="store_true",
         help="dynamic batch onnx for tensorrt and onnx-runtime",
     )
-    parser.add_argument("--grid", action="store_true", help="export Detect() layer grid")
+    parser.add_argument(
+        "--grid", action="store_true", help="export Detect() layer grid"
+    )
     parser.add_argument("--end2end", action="store_true", help="export end2end onnx")
     parser.add_argument(
         "--max-wh",
@@ -37,12 +41,22 @@ if __name__ == "__main__":
         default=None,
         help="None for tensorrt nms, int value for onnx-runtime nms",
     )
-    parser.add_argument("--topk-all", type=int, default=100, help="topk objects for every images")
-    parser.add_argument("--iou-thres", type=float, default=0.45, help="iou threshold for NMS")
-    parser.add_argument("--conf-thres", type=float, default=0.25, help="conf threshold for NMS")
-    parser.add_argument("--device", default="cpu", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
+    parser.add_argument(
+        "--topk-all", type=int, default=100, help="topk objects for every images"
+    )
+    parser.add_argument(
+        "--iou-thres", type=float, default=0.45, help="iou threshold for NMS"
+    )
+    parser.add_argument(
+        "--conf-thres", type=float, default=0.25, help="conf threshold for NMS"
+    )
+    parser.add_argument(
+        "--device", default="cpu", help="cuda device, i.e. 0 or 0,1,2,3 or cpu"
+    )
     parser.add_argument("--simplify", action="store_true", help="simplify onnx model")
-    parser.add_argument("--fp16", action="store_true", help="CoreML FP16 half-precision export")
+    parser.add_argument(
+        "--fp16", action="store_true", help="CoreML FP16 half-precision export"
+    )
     parser.add_argument("--int8", action="store_true", help="CoreML INT8 quantization")
     parser.add_argument(
         "--trt", action="store_true", help="True for tensorrt, false for onnx-runtime"
@@ -52,7 +66,27 @@ if __name__ == "__main__":
         action="store_true",
         help="True for using onnx_graphsurgeon to sort and remove unused",
     )
-    opt = parser.parse_args()
+    opt = parser.parse_args(
+        [
+            "--weights",
+            "yolov7-tiny-v0.pt",
+            "--img-size",
+            "640",
+            "--grid",
+            "--end2end",
+            "--topk-all",
+            "100",
+            # "--iou-thres",
+            # "0.4",
+            # "--conf-thres",
+            # "0.25",
+            "--device",
+            "cpu",
+            "--simplify",
+            "--cleanup",
+        ]
+    )
+    # opt = parser.parse_args()
     opt.img_size *= 2 if len(opt.img_size) == 1 else 1  # expand
     opt.dynamic = opt.dynamic and not opt.end2end
     opt.dynamic = False if opt.dynamic_batch else opt.dynamic
@@ -67,7 +101,9 @@ if __name__ == "__main__":
 
     # Checks
     gs = int(max(model.stride))  # grid size (max stride)
-    opt.img_size = [check_img_size(x, gs) for x in opt.img_size]  # verify img_size are gs-multiples
+    opt.img_size = [
+        check_img_size(x, gs) for x in opt.img_size
+    ]  # verify img_size are gs-multiples
 
     # Input
     img = torch.zeros(opt.batch_size, 3, *opt.img_size).to(
@@ -84,12 +120,12 @@ if __name__ == "__main__":
                 m.act = SiLU()
         # elif isinstance(m, models.yolo.Detect):
         #     m.forward = m.forward_export  # assign forward (optional)
-        
+
     # set Detect() layer grid export
     model.model[-1].export = not opt.grid
     model.model[-2].export = not opt.grid
-    
-    y = model(img)  # dry run 
+
+    y = model(img)  # dry run
 
     print("\nStarting ONNX export with onnx %s..." % onnx.__version__)
     f = opt.weights.replace(".pt", ".onnx")  # filename
@@ -100,27 +136,25 @@ if __name__ == "__main__":
         dynamic_axes = {
             "images": {0: "batch", 2: "height", 3: "width"},  # size(1,3,640,640)
         }
-        dynamic_axes['output'] = {0: "batch", 2: "y", 3: "x"}
+        dynamic_axes["output"] = {0: "batch", 2: "y", 3: "x"}
     if opt.dynamic_batch:
         opt.batch_size = "batch"
-        dynamic_axes = {
-            "images": {0: "batch"}
-        }
+        dynamic_axes = {"images": {0: "batch"}}
         if opt.end2end and opt.trt:
             output_axes = {
-                "face" : {
+                "face": {
                     "num_dets": {0: "batch"},
                     "det_boxes": {0: "batch"},
                     "det_scores": {0: "batch"},
                     "det_classes": {0: "batch"},
                 },
-                "head" :{0: "batch"}
+                "head": {0: "batch"},
             }
         else:
             output_axes = {
-                "head" : {0: "batch"},
-                "face" : {0: "batch"},
-                "body" : {0: "batch"}
+                "head": {0: "batch"},
+                "face": {0: "batch"},
+                "body": {0: "batch"},
             }
         dynamic_axes.update(output_axes)
 
@@ -142,14 +176,19 @@ if __name__ == "__main__":
             )
             if opt.end2end and opt.trt:
                 output_names = [
-                    "num_dets",
-                    "det_boxes",
-                    "det_scores",
-                    "det_classes",
-                    "det_lmks",
-                    "det_lmks_mask",
+                    "bnum_det",
+                    "bboxes",
+                    "bscores",
+                    "bcategories",
+                    "hnum_det",
+                    "hboxes",
+                    "hscores",
+                    "hcategories",
+                    "face",
                 ]
+                # (1, 1), (1, 100, 4), (1, 100), (1, 100), (1, 1), (1, 100, 4), (1, 100), (1, 100), (1, 25200, 21)
                 shapes = [
+                    # body
                     opt.batch_size,
                     1,
                     opt.batch_size,
@@ -159,12 +198,20 @@ if __name__ == "__main__":
                     opt.topk_all,
                     opt.batch_size,
                     opt.topk_all,
+                    # head
+                    opt.batch_size,
+                    1,
                     opt.batch_size,
                     opt.topk_all,
-                    10,
+                    4,
                     opt.batch_size,
                     opt.topk_all,
-                    5,
+                    opt.batch_size,
+                    opt.topk_all,
+                    # face
+                    opt.batch_size,
+                    25200,
+                    21,
                 ]
             else:
                 output_names = ["head", "face", "body"]
@@ -202,6 +249,12 @@ if __name__ == "__main__":
 
     if opt.simplify:
         try:
+            import importlib.util
+
+            # Check if package is installed
+            if importlib.util.find_spec("onnxsim") is None:
+                os.system("pip install onnxsim")
+
             import onnxsim
 
             print("\nStarting to simplify ONNX...")
@@ -212,9 +265,15 @@ if __name__ == "__main__":
 
     if opt.cleanup:
         try:
-            print("\nStarting to cleanup ONNX using onnx_graphsurgeon...")
+            import importlib.util
+
+            # Check if package is installed
+            if importlib.util.find_spec("onnx_graphsurgeon") is None:
+                os.system("pip install onnx_graphsurgeon")
+
             import onnx_graphsurgeon as gs
 
+            print("\nStarting to cleanup ONNX using onnx_graphsurgeon...")
             graph = gs.import_onnx(onnx_model)
             graph = graph.cleanup().toposort()
             onnx_model = gs.export_onnx(graph)
@@ -222,9 +281,9 @@ if __name__ == "__main__":
             print(f"Cleanup failure: {e}")
 
     # print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
-    output =[node for node in onnx_model.graph.output]
-    print('Outputs: ', output)
-    
+    output = [node for node in onnx_model.graph.output]
+    print("Outputs: ", output)
+
     onnx.save(onnx_model, f)
     print("ONNX export success, saved as %s" % f)
 

@@ -94,7 +94,7 @@ python widerface_evaluate/evaluation.py \
 | github/hiennguyen9874  | 16MB        | 94.9  | 93.12   | 82.8  | [yolov7-face-detection](https://github.com/hiennguyen9874/yolov7-face-detection/tree/main) |
 | Our   | 16MB        | 93.4  | 91.4   | 79.6  | [our]() |
 ## Convert pytorch to ONNX
-```
+```sh
 python export.py \
   --weights weights/yolov7-tiny-v0.pt \
   --img-size 640 --batch-size 1 \
@@ -103,13 +103,43 @@ python export.py \
 ```
 
 ## ONNX inference
-```python
+```sh
 python onnx_inference/inference.py \
   --model-path 'weights/yolov7-tiny-v0.onnx' \
   --img-path 'data/images' \
   --dst-path '/predicts/output' \
   --get-layer 'face' \
   --face-thres 0.78
+```
+
+## Convert ONNX to TensorRT
+- Convert ONNX to TensorRT
+  ```sh
+  python export.py \
+    --weights weights/yolov7-tiny-v0.pt \
+    --img-size 640 --batch-size 1 \
+    --grid --end2end --topk-all 100 \
+    --iou-thres 0.5 --conf-thres 0.2 --device 'cpu' \ 
+    --simplify --cleanup
+  ```
+- Convert ONNX to TensorRT
+  ```sh
+  python export_trt.py \
+    --onnx-path 'weights/yolov7-tiny-v0.onnx' \
+    --engine 'weights/yolov7-tiny-v0.trt'
+  ```
+
+## TensorRT inference
+```sh
+python trt_inference/inference.py \
+  --input './data/images/22_Picnic_Picnic_22_36.jpg' \
+  --output './output' \
+  --weight 'weights/yolov7-tiny-v0.trt' \
+  --nms_thresh 0.5 \
+  --body_conf 0.4 \
+  --head_conf 0.2 \
+  --face_conf 0.4 \
+  --warmup
 ```
 
 #### Dataset
