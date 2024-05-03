@@ -142,14 +142,7 @@ if __name__ == "__main__":
         type=int,
         help="The max memory workspace size to allow in Gb, " "default: 1",
     )
-    args = parser.parse_args(
-        [
-            "--onnx",
-            "/home/admin/doku/yolov7-face/yolov7-tiny-v0.onnx",
-            "--engine",
-            "/home/admin/doku/tensorrt/yolov7-tiny-v0.trt",
-        ]
-    )
+    args = parser.parse_args()
     print(args)
     if not all([args.onnx, args.engine]):
         parser.print_help()

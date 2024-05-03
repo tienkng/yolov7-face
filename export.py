@@ -66,27 +66,7 @@ if __name__ == "__main__":
         action="store_true",
         help="True for using onnx_graphsurgeon to sort and remove unused",
     )
-    opt = parser.parse_args(
-        [
-            "--weights",
-            "yolov7-tiny-v0.pt",
-            "--img-size",
-            "640",
-            "--grid",
-            "--end2end",
-            "--topk-all",
-            "100",
-            # "--iou-thres",
-            # "0.4",
-            # "--conf-thres",
-            # "0.25",
-            "--device",
-            "cpu",
-            "--simplify",
-            "--cleanup",
-        ]
-    )
-    # opt = parser.parse_args()
+    opt = parser.parse_args()
     opt.img_size *= 2 if len(opt.img_size) == 1 else 1  # expand
     opt.dynamic = opt.dynamic and not opt.end2end
     opt.dynamic = False if opt.dynamic_batch else opt.dynamic

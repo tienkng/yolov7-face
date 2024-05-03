@@ -120,7 +120,7 @@ python onnx_inference/inference.py \
     --img-size 640 --batch-size 1 \
     --grid --end2end --topk-all 100 \
     --iou-thres 0.5 --conf-thres 0.2 --device 'cpu' \ 
-    --simplify --cleanup
+    --simplify --cleanup --trt
   ```
 - Convert ONNX to TensorRT
   ```sh
