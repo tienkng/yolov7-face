@@ -543,7 +543,7 @@ class IKeypoint(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
+    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, anchors=None, export=False):  # model, input channels, number of classes
         super(Model, self).__init__()
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
@@ -553,6 +553,8 @@ class Model(nn.Module):
             with open(cfg) as f:
                 self.yaml = yaml.safe_load(f)  # model dict
 
+        self.export = export
+        
         # Define model
         ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
         if nc and nc != self.yaml['nc']:
@@ -628,22 +630,22 @@ class Model(nn.Module):
                 logger.info(f'{dt[-1]:10.2f} {o:10.2f} {m.np:10.0f}  {m.type}')
 
             x = m(x)  # run
+            if not self.export:
+                if isinstance(m, IKeypoint):
+                    model_outputs.update({'IKeypoint' : x})
 
-            if isinstance(m, IKeypoint):
-                model_outputs.update({'IKeypoint' : x})
+                if isinstance(m, IDetectHead):
+                    model_outputs.update({'IDetectHead' : x})
 
-            if isinstance(m, IDetectHead):
-                model_outputs.update({'IDetectHead' : x})
-
-            if isinstance(m, IDetectBody):
-                model_outputs.update({'IDetectBody' : x})
+                if isinstance(m, IDetectBody):
+                    model_outputs.update({'IDetectBody' : x})
 
             y.append(x if m.i in self.save else None)  # save output
 
         if profile:
             logger.info('%.1fms total' % sum(dt))
 
-        return model_outputs
+        return model_outputs if not self.export else x
 
     def _descale_pred(self, p, flips, scale, img_size):
         # de-scale predictions following augmented inference (inverse operation)
