@@ -118,3 +118,4 @@ head:
    [[74,75,76], 1, IDetectHead, [nc, anchors, 0]],
 
    [[74,75,76], 1, IKeypoint, [nc, anchors, 5]]
+]
