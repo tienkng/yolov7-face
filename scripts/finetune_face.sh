@@ -15,4 +15,4 @@ python -m torch.distributed.launch --nproc_per_node 2 --master_port 9527 train.p
   --kpt-label 5 \
   --detect-layer 'IKeypoint' \
   --sync-bn \
-  --freeze 79
+  --freeze '0-79'

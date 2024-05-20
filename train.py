@@ -116,11 +116,8 @@ def train(hyp, opt, device, tb_writer=None):
     if freeze is not None:
         _freeze = []
         for _sub_layer in freeze.split(','):
-            if _sub_layer.find('-') > 0:
-                start, end = _sub_layer.split('-')
-                _freeze.extend([f'model.{x}.' for x in range(int(start), int(end))])  # layers to freeze
-            else: # frozen from layer to layer
-                _freeze.extend([f'model.{x}.' for x in range(int(_sub_layer))])  # layers to freeze
+            start, end = _sub_layer.split('-')
+            _freeze.extend([f'model.{x}.' for x in range(int(start), int(end))])  # layers to freeze
         for k, v in model.named_parameters():
             v.requires_grad = True  # train all layers
             if any(x in k for x in _freeze):

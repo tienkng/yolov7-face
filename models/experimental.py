@@ -405,7 +405,7 @@ class ONNX_ORT(nn.Module):
 
         # face layer
         face = x["IKeypoint"][0]
-        get_kpt = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        get_kpt = [x for x in range(6,21)]
         fX, _, fboxes, fcategories, fscores, lmks = self._convert(face, get_kpt)
         fX = fX.unsqueeze(1).float()
         onnx_face = torch.cat([fX, fboxes, fcategories, fscores, lmks], 1)

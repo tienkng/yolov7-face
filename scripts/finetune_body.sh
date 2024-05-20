@@ -14,4 +14,4 @@ python -m torch.distributed.launch --nproc_per_node 2 --master_port 9527 train.p
   --multilosses True \
   --detect-layer 'IDetectBody' \
   --sync-bn \
-  --freeze '77,78-80'
+  --freeze '0-77,78-80'

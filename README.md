@@ -95,7 +95,7 @@ python widerface_evaluate/evaluation.py \
 | Our   | 16MB        | 93.4  | 91.4   | 79.6  | [our]() |
 ## Convert pytorch to ONNX
 ```sh
-python export.py \
+python export_onnx.py \
   --weights weights/yolov7-tiny-v0.pt \
   --img-size 640 --batch-size 1 \
   --dynamic-batch --grid --end2end --max-wh 640 --topk-all 100 \
