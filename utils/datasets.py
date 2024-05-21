@@ -670,16 +670,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         label = torch.cat(label, 0)
 
-        # Custom class label here
-        head_label = label[label[:,1] == 0]
-        #face_label = label[label[:,1] == 1]
-        #body_label = label[label[:,1] == 1]
+        # Split samples in batc into right class label for pretrain
+        # WIDER_FACE: face = 0, head = 1, body = 2
+        face_label = label[label[:,1] == 0]
+        head_label = label[label[:,1] == 1]
+        body_label = label[label[:,1] == 2]
         
-        #body_label[:, 1] = 0
+        head_label[:, 1], body_label[: 1] = 0, 0
         
-        # return torch.stack(img, 0), {'IKeypoint':face_label, 'IDetectHead':head_label[:,:6], 'IDetectBody':body_label[:,:6]}, path, shapes
+        return torch.stack(img, 0), {'IKeypoint':face_label, 'IDetectHead':head_label[:,:6], 'IDetectBody':body_label[:,:6]}, path, shapes
         
-        return torch.stack(img, 0), {'IDetectHead':head_label}, path, shapes
+        #return torch.stack(img, 0), {'IDetectHead':head_label}, path, shapes
 
     @staticmethod
     def collate_fn4(batch):

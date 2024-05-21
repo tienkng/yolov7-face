@@ -28,3 +28,10 @@ onnxruntime==1.12.0
 # extras --------------------------------------
 thop  # FLOPS computation
 pycocotools>=2.0  # COCO mAP
+
+# TensorRT --------------------------------------
+tensorrt==8.6.1
+nvidia-pyindex
+nvidia-tensorrt
+pycuda
+cuda-python
