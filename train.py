@@ -95,18 +95,19 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Model
     pretrained = weights.endswith('.pt')
+    headlayers = ['Detect', 'IDetect', 'IKeypoint', 'IDetectHead', 'IDetectBody']
     if pretrained:
         with torch_distributed_zero_first(rank):
             attempt_download(weights)  # download if not found locally
         ckpt = torch.load(weights, map_location=device)  # load checkpoint
-        model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
+        model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors'), headlayers=headlayers).to(device)  # create
         exclude = ['anchor'] if (opt.cfg or hyp.get('anchors')) and not opt.resume else []  # exclude keys
         state_dict = ckpt['model'].float().state_dict()  # to FP32
         state_dict = intersect_dicts(state_dict, model.state_dict(), exclude=exclude)  # intersect
         model.load_state_dict(state_dict, strict=False)  # load
         logger.info('\n\nTransferred %g/%g items from %s\n\n' % (len(state_dict), len(model.state_dict()), weights))  # report
     else:
-        model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
+        model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), headlayers=headlayers).to(device)  # create
     with torch_distributed_zero_first(rank):
         check_dataset(data_dict)  # check
     train_path = data_dict['train']
@@ -277,9 +278,9 @@ def train(hyp, opt, device, tb_writer=None):
 
     # init loss function
     loss_fn = {
-        'IKeypoint' : ComputeLoss(model, kpt_label=kpt_label),
-        'IDetectHead' : ComputeLoss(model),
-        'IDetectBody' : ComputeLoss(model)
+        'IKeypoint' : ComputeLoss(model, kpt_label=kpt_label, detect_layer='IKeypoint'),
+        'IDetectHead' : ComputeLoss(model, detect_layer='IDetectHead'),
+        'IDetectBody' : ComputeLoss(model, detect_layer='IDetectBody')
     }
 
     logger.info(f'Image sizes {imgsz} train, {imgsz_test} test\n'
@@ -563,7 +564,7 @@ if __name__ == '__main__':
     parser.add_argument('--freeze', type=str, default=None, help='frozen number of layer')
     parser.add_argument('--multilosses', type=bool, default=False, help="Multihead loss")
     parser.add_argument('--detect-layer', type=str, default=None, help="Calculated loss")
-    parser.add_argument('--warmup', type=bool, default=False, help="Warmup epochs")
+    parser.add_argument('--warmup', action='store_true', help="Warmup epochs")
     opt = parser.parse_args()
 
     # Set DDP variables

@@ -12,4 +12,5 @@ python -m torch.distributed.launch --nproc_per_node 2 --master_port 9527 train.p
   --multilosses True \
   --kpt-label 5 \
   --sync-bn \
-  --warmup
+  --warmup \
+  --detect-layer 'IKeypoint'
