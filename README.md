@@ -142,6 +142,42 @@ python trt_inference/inference.py \
   --warmup
 ```
 
+## Quantization
+
+- Convert ONNX to Float16:
+  ```python
+  import onnx
+  from onnxconverter_common import float16
+
+  input_model = "weights/yolo-person-backbone.preprocess.onnx"
+  output_model = "weights/yolo-person-backbone.f16.onnx"
+
+  model = onnx.load(input_model)
+  model_fp16 = float16.convert_float_to_float16(model)
+  onnx.save(model_fp16, output_model)
+
+  # Cleanup
+  import onnx_graphsurgeon as gs
+
+  model = onnx.load(output_model)
+
+  graph = gs.import_onnx(model)
+  graph.cleanup().toposort().fold_constants().cleanup()
+
+  optimized_model = gs.export_onnx(graph)
+  onnx.save(optimized_model, output_model)
+  ```
+
+- Convert ONNX to INT8:
+  ```sh
+  python -m onnxruntime.quantization.preprocess --input <model_path> --output <output_path>
+  ```
+
+  - Change model path in `quantize/run.py` and run
+  ```sh
+  python quantize/run.py
+  ```
+
 #### Dataset
 
 [WiderFace](http://shuoyang1213.me/WIDERFACE/)
