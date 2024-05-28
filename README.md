@@ -178,6 +178,10 @@ python trt_inference/inference.py \
   python quantize/run.py
   ```
 
+## Split Model
+
+- Check out this [README](cutout_readme.md) for more information.
+
 #### Dataset
 
 [WiderFace](http://shuoyang1213.me/WIDERFACE/)
