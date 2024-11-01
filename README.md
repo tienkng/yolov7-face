@@ -55,12 +55,11 @@ bash scripts/finetune_body.sh
 ## Testing
 Change `detect-layer` to determine which your target ('body', 'head')
 ```
-python hf_detect.py \
+python detect.py \
     --weights weights/yolov7-tiny-v0.pt \
     --device 0 \
     --source data/images \
-    --detect-layer 'face' \
-    --kpt-label 5 \
+    --detect-layer 'head' \
     --save-txt
 ```
 ![](data/images/result.jpg)
